@@ -138,6 +138,13 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            echo "Waiting for EC2 user_data to finish installing Docker..."
+            while ! command -v docker &> /dev/null; do
+              echo "Docker is not ready yet, sleeping 10s..."
+              sleep 10
+            done
+            echo "Docker is installed!"
+            
             sudo docker network create app-network || true
             
             if ! sudo docker ps -a | grep -q db; then
