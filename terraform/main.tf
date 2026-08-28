@@ -11,8 +11,12 @@ provider "aws" {
   region = var.aws_region
 }
 
+resource "random_id" "sg_suffix" {
+  byte_length = 4
+}
+
 resource "aws_security_group" "api_sg" {
-  name        = "api_sg_fap_desafio"
+  name        = "api_sg_fap_${random_id.sg_suffix.hex}"
   description = "Allow HTTP and SSH inbound traffic"
 
   ingress {
