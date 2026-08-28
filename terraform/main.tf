@@ -12,7 +12,7 @@ provider "aws" {
 }
 
 resource "aws_security_group" "api_sg" {
-  name        = "api_sg"
+  name        = "api_sg_fap_desafio"
   description = "Allow HTTP and SSH inbound traffic"
 
   ingress {
