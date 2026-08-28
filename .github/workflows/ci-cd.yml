@@ -138,8 +138,14 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            sudo docker network create app-network || true
+            
+            if ! sudo docker ps -a | grep -q db; then
+              sudo docker run -d --name db --network app-network -e POSTGRES_USER=root -e POSTGRES_PASSWORD=rootpassword -e POSTGRES_DB=observabilidade postgres:15
+              sleep 10
+            fi
+            
             sudo docker pull ${{ secrets.DOCKERHUB_USERNAME }}/api-observabilidade:latest
             sudo docker stop api-app || true
             sudo docker rm api-app || true
-            sudo docker run -d --name api-app -p 3000:3000 ${{ secrets.DOCKERHUB_USERNAME }}/api-observabilidade:latest
-            # Aqui poderíamos tbm subir o prometheus e grafana através do docker-compose
+            sudo docker run -d --name api-app --network app-network -e DATABASE_URL="postgresql://root:rootpassword@db:5432/observabilidade?schema=public" -p 3000:3000 ${{ secrets.DOCKERHUB_USERNAME }}/api-observabilidade:latest
