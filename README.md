@@ -22,7 +22,7 @@ Para testar a aplicação e visualizar os dados no Grafana, utilize o Docker Com
 
 1. Clone o repositório:
    ```bash
-   git clone https://github.com/SEU-USUARIO/devops-challenge-fap.git
+   git clone https://github.com/hrvtonn/devops-challenge-fap.git
    cd devops-challenge-fap
    ```
 
