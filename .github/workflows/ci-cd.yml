@@ -1,0 +1,138 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  sast:
+    name: SAST (Security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run SAST Scanner (Semgrep)
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: "p/default"
+  
+  lint_and_quality:
+    name: Lint & Quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Observabilidade
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './Observabilidade/package-lock.json'
+      - run: npm ci
+      - run: npm run lint
+
+  test:
+    name: Testes
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Observabilidade
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './Observabilidade/package-lock.json'
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm test
+
+  build:
+    name: Build Node App
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Observabilidade
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './Observabilidade/package-lock.json'
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run build
+
+  docker:
+    name: Build do Docker
+    needs: [sast, lint_and_quality, test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: ./Observabilidade
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/api-observabilidade:latest,${{ secrets.DOCKERHUB_USERNAME }}/api-observabilidade:${{ github.sha }}
+
+  terraform:
+    name: Provisionamento (Terraform)
+    needs: [docker]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory: ./terraform
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+      
+      - name: Terraform Init
+        run: terraform init
+        
+      - name: Terraform Apply
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_key_name: ${{ secrets.AWS_KEY_NAME }}
+        run: terraform apply -auto-approve
+
+  deploy:
+    name: Deploy Job
+    needs: [terraform]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo docker pull ${{ secrets.DOCKERHUB_USERNAME }}/api-observabilidade:latest
+            sudo docker stop api-app || true
+            sudo docker rm api-app || true
+            sudo docker run -d --name api-app -p 3000:3000 ${{ secrets.DOCKERHUB_USERNAME }}/api-observabilidade:latest
+            # Aqui poderíamos tbm subir o prometheus e grafana através do docker-compose
